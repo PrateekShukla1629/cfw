@@ -8,7 +8,7 @@ app = Flask(__name__)
 app.config['MYSQL_HOST'] = 'localhost'
 app.config['MYSQL_USER'] = 'root'
 app.config['MYSQL_PASSWORD'] = ''  # Default password for root user is empty
-app.config['MYSQL_DB'] = 'jnayil_db'
+app.config['MYSQL_DB'] = 'jnil_db'
 
 # Initialize MySQL
 mysql = MySQL(app)

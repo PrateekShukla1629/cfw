@@ -4,14 +4,17 @@ import os
 import binascii
 from flask import Response
 import json
+import base64
 app = Flask(__name__)
 
 # Configure the MySQL connection (for WAMP)
 app.config['MYSQL_HOST'] = 'localhost'  # WAMP default MySQL host
-app.config['MYSQL_USER'] = 'root'  # Default MySQL user
-app.config['MYSQL_PASSWORD'] = ''  # Default password (empty string in WAMP)
+app.config['MYSQL_USER'] = 'pratik'  # Default MySQL user
+app.config['MYSQL_PASSWORD'] = 'Welcome@123'  # Default password (empty string in WAMP)
 app.config['MYSQL_DB'] = 'jnil_db'  # Replace with your actual database name
 app.config['SECRET_KEY'] = os.urandom(24)  # For CSRF protection
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB limit
+
 mysql = MySQL(app)
 
 
@@ -88,7 +91,7 @@ def logout():
 def fetch_invoices():
     cur = mysql.connection.cursor()
     # Execute the SQL query and fetch all rows
-    cur.execute("SELECT customer_id, invoice_number, status FROM pending_invoices WHERE customer_id = %s", (g.user,))
+    cur.execute("SELECT customer_id, invoice_number, status FROM invoices WHERE customer_id = %s", (g.user,))
     invoices = cur.fetchall()  # fetchall retrieves all rows
 
     # Process the data to format it into a list of dictionaries
@@ -387,7 +390,7 @@ def get_invoices():
     cur.execute("""
         SELECT id, invoice_number, invoice_item, invoice_date, customer, customer_name, 
                invoice_quantity, material, material_description, sales_unit, 
-               received_quantity, remark, status
+               received_quantity, remark, status, attachment
         FROM invoices
     """)
     invoices = cur.fetchall()
@@ -406,7 +409,8 @@ def get_invoices():
         "sales_unit": i[9],
         "received_quantity": i[10],
         "remark": i[11],
-        "status": i[12]
+        "status": i[12],
+        "attachment": base64.b64encode(i[13]).decode('utf-8') if i[13] else None
     } for i in invoices]
 
     return jsonify(invoices_list)
@@ -493,7 +497,6 @@ def search_users():
     users_list = [{"customer_id": user[0], "name": user[1]} for user in users]
 
     return jsonify(users_list)
-
 @app.route('/admin/change_password', methods=['POST'])
 def admin_change_password():
     if 'admin_id' not in session:
@@ -515,7 +518,39 @@ def admin_change_password():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
+
+@app.route('/upload_attachment/<invoice_number>', methods=['POST'])
+def upload_attachment(invoice_number):
+    if 'attachment' not in request.files:
+        return jsonify({"status": "error", "message": "No file part"}), 400
+
+    file = request.files['attachment']
+    if file.filename == '':
+        return jsonify({"status": "error", "message": "No selected file"}), 400
+
+    try:
+        # Save the file content as a blob in the database
+        file_data = file.read()
+
+        cur = mysql.connection.cursor()
+        cur.execute("UPDATE invoices SET attachment = %s WHERE invoice_number = %s", (file_data, invoice_number))
+        mysql.connection.commit()
+        cur.close()
+
+        return jsonify({"status": "success", "message": "File uploaded successfully", "filename": file.filename}), 200
+
+    except Exception as e:
+        mysql.connection.rollback()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+
+@app.route('/landing', methods=['GET'])
+def landing_page():
+    return render_template('landing_page.html')
+
 # Main block to run the Flask application
 if __name__ == '__main__':
     print(app.url_map)  # This will show all the registered routes
-    app.run(host='0.0.0.0', debug=True)
+    #app.run(host='0.0.0.0', debug=True)
+    app.run(host="0.0.0.0", port=5001, debug=True, use_reloader=False)
